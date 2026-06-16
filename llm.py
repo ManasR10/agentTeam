@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from anthropic import Anthropic  # pyright: ignore[reportMissingImports]
 
-from config import settings
+from config import get_settings
 from tools.registry import ANTHROPIC_TOOLS, execute_tool
 
 
@@ -57,10 +58,19 @@ class ToolLoopError(RuntimeError):
     """Raised when the manual tool loop cannot complete safely."""
 
 
-client = Anthropic(
-    api_key=settings.anthropic_api_key,
-    timeout=settings.llm_timeout_seconds,
-)
+@lru_cache(maxsize=1)
+def get_client() -> Anthropic:
+    """
+    Return the cached Anthropic client.
+
+    Created on first call (not at import time) so importing this module does
+    not require a valid API key — important for tests and tooling.
+    """
+    settings = get_settings()
+    return Anthropic(
+        api_key=settings.anthropic_api_key,
+        timeout=settings.llm_timeout_seconds,
+    )
 
 
 def extract_text_from_blocks(content_blocks: list[Any]) -> str:
@@ -90,9 +100,14 @@ def call_llm(
     if not clean_system:
         raise ValueError("system cannot be empty")
 
-    resolved_max_tokens = max_tokens or settings.llm_max_tokens
+    settings = get_settings()
+    resolved_max_tokens = (
+        max_tokens if max_tokens is not None else settings.llm_max_tokens
+    )
+    if resolved_max_tokens <= 0:
+        raise ValueError("max_tokens must be greater than zero")
 
-    response = client.messages.create(
+    response = get_client().messages.create(
         model=settings.llm_model,
         max_tokens=resolved_max_tokens,
         system=clean_system,
@@ -185,7 +200,12 @@ def call_agent_with_tools(
     if not clean_system:
         raise ValueError("system cannot be empty")
 
-    resolved_max_tokens = max_tokens or settings.llm_max_tokens
+    settings = get_settings()
+    resolved_max_tokens = (
+        max_tokens if max_tokens is not None else settings.llm_max_tokens
+    )
+    if resolved_max_tokens <= 0:
+        raise ValueError("max_tokens must be greater than zero")
 
     # The running conversation. We append to this every turn: the assistant's
     # tool_use request, then our tool_result reply, then the assistant again.
@@ -202,6 +222,7 @@ def call_agent_with_tools(
     last_model = settings.llm_model
     last_stop_reason: str | None = None
 
+    client = get_client()
     for iteration in range(1, settings.tool_max_iterations + 1):
         response = client.messages.create(
             model=settings.llm_model,

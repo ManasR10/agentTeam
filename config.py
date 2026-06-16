@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -121,4 +122,13 @@ def load_settings() -> Settings:
     )
 
 
-settings = load_settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """
+    Return the validated application settings.
+
+    Settings are loaded and validated on first call (not at import time) and
+    then cached. Loading lazily means importing this module can never fail
+    just because `.env` is missing, which keeps tests and tooling importable.
+    """
+    return load_settings()

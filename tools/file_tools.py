@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from config import settings
+from config import get_settings
 from tools.safety import PathSafetyError, resolve_inside_workspace
 from tools.schemas import ToolResult
 
@@ -57,6 +58,22 @@ def is_probably_text_file(path: Path) -> bool:
     return path.suffix.lower() in TEXT_FILE_EXTENSIONS
 
 
+def is_blocked_file(name: str) -> bool:
+    """
+    Return True for secret/system files that tools must never read or list.
+
+    Any `.env*` file is blocked EXCEPT the committed, safe `.env.example`.
+    This covers `.env`, `.env.local`, `.env.production`, `.env.test`, etc.
+    """
+    if name == ".env.example":
+        return False
+    if name in IGNORED_FILE_NAMES:
+        return True
+    if name.startswith(".env"):
+        return True
+    return False
+
+
 def read_file(path: str) -> ToolResult:
     """
     Safely read a text file inside the configured workspace.
@@ -64,6 +81,7 @@ def read_file(path: str) -> ToolResult:
     Returns a ToolResult instead of raising, so the tool loop can hand any
     failure back to the model as a normal (non-fatal) observation.
     """
+    settings = get_settings()
     try:
         resolved = resolve_inside_workspace(
             path,
@@ -82,7 +100,7 @@ def read_file(path: str) -> ToolResult:
                 content=f"Path is not a file: {path}",
                 metadata={"path": path},
             )
-        if resolved.name in IGNORED_FILE_NAMES:
+        if is_blocked_file(resolved.name):
             return ToolResult(
                 ok=False,
                 content=f"Access to this file is blocked: {path}",
@@ -136,9 +154,7 @@ def should_ignore_path(path: Path) -> bool:
     parts = set(path.parts)
     if parts.intersection(IGNORED_DIR_NAMES):
         return True
-    if path.name in IGNORED_FILE_NAMES:
-        return True
-    return False
+    return is_blocked_file(path.name)
 
 
 def list_files(path: str = ".") -> ToolResult:
@@ -147,6 +163,7 @@ def list_files(path: str = ".") -> ToolResult:
 
     Returns relative paths and skips common noisy/sensitive folders.
     """
+    settings = get_settings()
     try:
         resolved = resolve_inside_workspace(
             path,
@@ -167,12 +184,18 @@ def list_files(path: str = ".") -> ToolResult:
             )
 
         files: list[str] = []
-        for child in sorted(resolved.rglob("*")):
-            relative = child.relative_to(settings.tool_workspace_root)
-            if should_ignore_path(relative):
-                continue
-            if child.is_file():
+        for dirpath, dirnames, filenames in os.walk(resolved):
+            # Prune ignored directories in place so os.walk never descends
+            # into them (avoids walking .venv/.git/node_modules entirely).
+            dirnames[:] = [d for d in dirnames if d not in IGNORED_DIR_NAMES]
+            for filename in filenames:
+                relative = (Path(dirpath) / filename).relative_to(
+                    settings.tool_workspace_root
+                )
+                if should_ignore_path(relative):
+                    continue
                 files.append(str(relative))
+        files.sort()
 
         if not files:
             return ToolResult(
