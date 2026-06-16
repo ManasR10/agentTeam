@@ -44,6 +44,24 @@ def test_is_blocked_file_env_variants() -> None:
     assert is_blocked_file("config.py") is False
 
 
+def test_file_tools_do_not_require_api_key(monkeypatch) -> None:
+    """
+    Offline file tools must work with no ANTHROPIC_API_KEY set.
+
+    read_file/list_files only need the workspace settings; they never call the
+    API. This guards against re-coupling file tools to API-key validation.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    get_settings.cache_clear()
+    try:
+        result = read_file("README.md")
+        assert result.ok is True
+        assert len(result.content) > 0
+    finally:
+        # Drop the key-less cached settings so later tests reload normally.
+        get_settings.cache_clear()
+
+
 def test_read_file_blocks_binary_file() -> None:
     """read_file must refuse a non-text file living inside the workspace."""
     artifact = get_settings().tool_workspace_root / "_test_binary_artifact.png"

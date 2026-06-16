@@ -7,7 +7,7 @@ from typing import Any
 
 from anthropic import Anthropic  # pyright: ignore[reportMissingImports]
 
-from config import get_settings
+from config import ConfigurationError, get_settings
 from tools.registry import ANTHROPIC_TOOLS, execute_tool
 
 
@@ -64,9 +64,16 @@ def get_client() -> Anthropic:
     Return the cached Anthropic client.
 
     Created on first call (not at import time) so importing this module does
-    not require a valid API key — important for tests and tooling.
+    not require a valid API key — important for tests and tooling. The key is
+    validated here, at the only point that actually needs it, rather than when
+    settings load (which offline file tools also trigger).
     """
     settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise ConfigurationError(
+            "Missing required environment variable: ANTHROPIC_API_KEY. "
+            "Create a .env file using .env.example as the template."
+        )
     return Anthropic(
         api_key=settings.anthropic_api_key,
         timeout=settings.llm_timeout_seconds,
