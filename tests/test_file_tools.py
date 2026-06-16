@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from config import get_settings
@@ -71,13 +72,17 @@ def test_file_tools_do_not_require_api_key(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
-def test_read_file_blocks_binary_file() -> None:
+def test_read_file_blocks_binary_file(monkeypatch, tmp_path) -> None:
     """read_file must refuse a non-text file living inside the workspace."""
-    artifact = get_settings().tool_workspace_root / "_test_binary_artifact.png"
+    # Use an isolated tmp_path workspace instead of writing into the real
+    # project dir. This avoids polluting the repo and removes the race where a
+    # parallel test run could delete the artifact mid-read.
+    settings = replace(get_settings(), tool_workspace_root=tmp_path)
+    monkeypatch.setattr("tools.file_tools.get_settings", lambda: settings)
+
+    artifact = tmp_path / "artifact.png"
     artifact.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x00binary-bytes")
-    try:
-        result = read_file("_test_binary_artifact.png")
-        assert result.ok is False
-        assert "not allowed" in result.content.lower()
-    finally:
-        artifact.unlink(missing_ok=True)
+
+    result = read_file("artifact.png")
+    assert result.ok is False
+    assert "not allowed" in result.content.lower()
