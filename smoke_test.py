@@ -4,11 +4,11 @@ import sys
 
 from llm import call_llm
 
-EXPECTED_REPLY = "NPW Phase 0 setup OK"
+EXPECTED_REPLY = "DevAgent Phase 0 setup OK"
 
 
 def main() -> int:
-    print("Running NPW Phase 0 smoke test...")
+    print("Running DevAgent Phase 0 smoke test...")
     try:
         result = call_llm(
             prompt=(

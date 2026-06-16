@@ -52,19 +52,50 @@ def read_positive_integer(name: str, default: int) -> int:
     return value
 
 
+def resolve_workspace_root(raw_path: str) -> Path:
+    """
+    Resolve TOOL_WORKSPACE_ROOT into an absolute directory path.
+
+    A relative value is resolved against PROJECT_ROOT so the workspace
+    is stable no matter which directory the program is launched from.
+
+    Raises:
+        ConfigurationError: If the path does not exist or is not a directory.
+    """
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    resolved = candidate.resolve()
+    if not resolved.exists():
+        raise ConfigurationError(
+            f"TOOL_WORKSPACE_ROOT does not exist: {resolved}"
+        )
+    if not resolved.is_dir():
+        raise ConfigurationError(
+            f"TOOL_WORKSPACE_ROOT must be a directory: {resolved}"
+        )
+    return resolved
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     anthropic_api_key: str
     llm_model: str
     llm_max_tokens: int
     llm_timeout_seconds: int
+    tool_max_iterations: int
+    tool_workspace_root: Path
+    max_file_read_chars: int
 
 
 def load_settings() -> Settings:
-    """Load and validate the NPW application settings."""
+    """Load and validate the DevAgent application settings."""
     model = os.getenv("LLM_MODEL", "claude-sonnet-4-6").strip()
     if not model:
         raise ConfigurationError("LLM_MODEL cannot be empty.")
+    workspace_root = resolve_workspace_root(
+        os.getenv("TOOL_WORKSPACE_ROOT", ".")
+    )
     return Settings(
         anthropic_api_key=require_environment_variable(
             "ANTHROPIC_API_KEY"
@@ -77,6 +108,15 @@ def load_settings() -> Settings:
         llm_timeout_seconds=read_positive_integer(
             "LLM_TIMEOUT_SECONDS",
             default=60,
+        ),
+        tool_max_iterations=read_positive_integer(
+            "TOOL_MAX_ITERATIONS",
+            default=5,
+        ),
+        tool_workspace_root=workspace_root,
+        max_file_read_chars=read_positive_integer(
+            "MAX_FILE_READ_CHARS",
+            default=20000,
         ),
     )
 
