@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from config import get_settings
-from tools.file_tools import is_blocked_file, is_probably_text_file, read_file
+from tools.file_tools import (
+    is_blocked_file,
+    is_probably_text_file,
+    list_files,
+    read_file,
+)
 
 
 def test_read_file_blocks_env_file() -> None:
@@ -54,9 +59,13 @@ def test_file_tools_do_not_require_api_key(monkeypatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     get_settings.cache_clear()
     try:
-        result = read_file("README.md")
-        assert result.ok is True
-        assert len(result.content) > 0
+        read_result = read_file("README.md")
+        assert read_result.ok is True
+        assert len(read_result.content) > 0
+
+        list_result = list_files(".")
+        assert list_result.ok is True
+        assert len(list_result.content) > 0
     finally:
         # Drop the key-less cached settings so later tests reload normally.
         get_settings.cache_clear()
