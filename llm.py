@@ -187,6 +187,7 @@ def call_agent_with_tools(
         "If a tool fails, explain the failure clearly."
     ),
     max_tokens: int | None = None,
+    max_iterations: int | None = None,
 ) -> AgentRunResult:
     """
     Run a manual Anthropic tool-use loop.
@@ -214,6 +215,14 @@ def call_agent_with_tools(
     if resolved_max_tokens <= 0:
         raise ValueError("max_tokens must be greater than zero")
 
+    resolved_max_iterations = (
+        max_iterations
+        if max_iterations is not None
+        else settings.tool_max_iterations
+    )
+    if resolved_max_iterations <= 0:
+        raise ValueError("max_iterations must be greater than zero")
+
     # The running conversation. We append to this every turn: the assistant's
     # tool_use request, then our tool_result reply, then the assistant again.
     messages: list[dict[str, Any]] = [
@@ -230,7 +239,7 @@ def call_agent_with_tools(
     last_stop_reason: str | None = None
 
     client = get_client()
-    for iteration in range(1, settings.tool_max_iterations + 1):
+    for iteration in range(1, resolved_max_iterations + 1):
         response = client.messages.create(
             model=settings.llm_model,
             max_tokens=resolved_max_tokens,
@@ -347,5 +356,5 @@ def call_agent_with_tools(
 
     raise ToolLoopError(
         "Tool loop reached maximum iterations "
-        f"({settings.tool_max_iterations}) without final response."
+        f"({resolved_max_iterations}) without final response."
     )
