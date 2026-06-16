@@ -16,22 +16,6 @@ class ConfigurationError(RuntimeError):
     """Raised when required application configuration is invalid."""
 
 
-def require_environment_variable(name: str) -> str:
-    """
-    Return a required environment variable.
-
-    Raises:
-        ConfigurationError: If the variable is absent or empty.
-    """
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        raise ConfigurationError(
-            f"Missing required environment variable: {name}. "
-            "Create a .env file using .env.example as the template."
-        )
-    return value.strip()
-
-
 def read_positive_integer(name: str, default: int) -> int:
     """
     Read a positive integer environment variable.
@@ -80,7 +64,10 @@ def resolve_workspace_root(raw_path: str) -> Path:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    anthropic_api_key: str
+    # Optional at load time: the key is only required to build the Anthropic
+    # client (see llm.get_client). Keeping it optional lets offline tools and
+    # tests load settings without a key present.
+    anthropic_api_key: str | None
     llm_model: str
     llm_max_tokens: int
     llm_timeout_seconds: int
@@ -97,10 +84,10 @@ def load_settings() -> Settings:
     workspace_root = resolve_workspace_root(
         os.getenv("TOOL_WORKSPACE_ROOT", ".")
     )
+    raw_api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = raw_api_key.strip() if raw_api_key and raw_api_key.strip() else None
     return Settings(
-        anthropic_api_key=require_environment_variable(
-            "ANTHROPIC_API_KEY"
-        ),
+        anthropic_api_key=api_key,
         llm_model=model,
         llm_max_tokens=read_positive_integer(
             "LLM_MAX_TOKENS",
