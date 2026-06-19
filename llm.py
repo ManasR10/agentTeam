@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -9,6 +10,11 @@ from anthropic import Anthropic  # pyright: ignore[reportMissingImports]
 
 from config import ConfigurationError, get_settings
 from tools.registry import ANTHROPIC_TOOLS, execute_tool
+from tools.schemas import ToolResult
+
+# A tool executor maps (tool_name, tool_input) to a ToolResult. The loop stays
+# agnostic about which tools are permitted; the executor closes over that.
+ToolExecutor = Callable[[str, dict[str, Any]], ToolResult]
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +192,8 @@ def call_agent_with_tools(
         "Do not guess file contents. "
         "If a tool fails, explain the failure clearly."
     ),
+    tools: Sequence[dict[str, Any]] | None = None,
+    tool_executor: ToolExecutor | None = None,
     max_tokens: int | None = None,
     max_iterations: int | None = None,
 ) -> AgentRunResult:
@@ -207,6 +215,13 @@ def call_agent_with_tools(
         raise ValueError("prompt cannot be empty")
     if not clean_system:
         raise ValueError("system cannot be empty")
+
+    # Default to the full tool set and the allow-all executor (Phase 1/2
+    # behaviour). Phase 3 callers inject a capability-scoped profile + executor.
+    resolved_tools = list(ANTHROPIC_TOOLS if tools is None else tools)
+    resolved_executor: ToolExecutor = (
+        execute_tool if tool_executor is None else tool_executor
+    )
 
     settings = get_settings()
     resolved_max_tokens = (
@@ -244,7 +259,7 @@ def call_agent_with_tools(
             model=settings.llm_model,
             max_tokens=resolved_max_tokens,
             system=clean_system,
-            tools=ANTHROPIC_TOOLS,
+            tools=resolved_tools,
             messages=messages,
         )
 
@@ -317,7 +332,7 @@ def call_agent_with_tools(
                 )
                 continue
 
-            result = execute_tool(tool_name, tool_input)
+            result = resolved_executor(tool_name, tool_input)
 
             tool_result_text = format_tool_result_content(
                 tool_name=tool_name,
