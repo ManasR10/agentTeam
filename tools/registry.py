@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from tools.file_tools import list_files, read_file
 from tools.schemas import ToolResult
+from tools.write_tools import create_file, replace_in_file, write_file
 
 ToolFunction = Callable[..., ToolResult]
 
@@ -80,11 +81,108 @@ _LIST_FILES = RegisteredTool(
 )
 
 
+_CREATE_FILE = RegisteredTool(
+    name="create_file",
+    description=(
+        "Create a NEW text file inside the workspace. Fails if the file "
+        "already exists or its parent directory is missing. Use this only for "
+        "genuinely new files; use replace_in_file to edit existing ones."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path of the new file in the workspace.",
+            },
+            "content": {
+                "type": "string",
+                "description": "Full text content of the new file.",
+            },
+        },
+        "required": ["path", "content"],
+        "additionalProperties": False,
+    },
+    function=create_file,
+    category="write",
+)
+
+_REPLACE_IN_FILE = RegisteredTool(
+    name="replace_in_file",
+    description=(
+        "Replace an exact substring in an existing text file. The edit is "
+        "refused unless old_text occurs exactly expected_replacements times, so "
+        "it cannot accidentally change the wrong or a stale version. Prefer "
+        "this over write_file for most edits."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path of the file to edit.",
+            },
+            "old_text": {
+                "type": "string",
+                "description": "Exact existing text to replace.",
+            },
+            "new_text": {
+                "type": "string",
+                "description": "Replacement text.",
+            },
+            "expected_replacements": {
+                "type": "integer",
+                "description": "How many occurrences old_text must match.",
+                "default": 1,
+            },
+        },
+        "required": ["path", "old_text", "new_text"],
+        "additionalProperties": False,
+    },
+    function=replace_in_file,
+    category="write",
+)
+
+_WRITE_FILE = RegisteredTool(
+    name="write_file",
+    description=(
+        "Fully rewrite an existing text file. Requires expected_sha256 from the "
+        "last read of the file; the write is rejected if the file changed since "
+        "(stale write) or is too large to have been read whole. Use only when a "
+        "complete rewrite is justified — otherwise prefer replace_in_file."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path of the file to rewrite.",
+            },
+            "content": {
+                "type": "string",
+                "description": "Full new text content of the file.",
+            },
+            "expected_sha256": {
+                "type": "string",
+                "description": "SHA-256 the file had when last read.",
+            },
+        },
+        "required": ["path", "content", "expected_sha256"],
+        "additionalProperties": False,
+    },
+    function=write_file,
+    category="write",
+)
+
+
 # The single source of truth for every tool the agent layer may use. New
-# Phase 3 tools (write/command/git) register themselves here.
+# Phase 3 tools (command/git) register themselves here.
 TOOL_REGISTRY: dict[str, RegisteredTool] = {
     _READ_FILE.name: _READ_FILE,
     _LIST_FILES.name: _LIST_FILES,
+    _CREATE_FILE.name: _CREATE_FILE,
+    _REPLACE_IN_FILE.name: _REPLACE_IN_FILE,
+    _WRITE_FILE.name: _WRITE_FILE,
 }
 
 
@@ -100,6 +198,21 @@ def register_tool(tool: RegisteredTool) -> None:
 # validated against the registry at call time, so a name here that is not yet
 # registered surfaces immediately rather than silently doing nothing.
 PLANNER_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
+
+# The coder may inspect and mutate. Command/git capabilities are added in P3.4.
+CODER_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "read_file",
+        "list_files",
+        "create_file",
+        "replace_in_file",
+        "write_file",
+    }
+)
+
+# The reviewer is read-only. Git inspection tools are added in P3.4. It must
+# never receive any write capability.
+REVIEWER_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
 
 
 def get_tool_definitions(names: Collection[str]) -> list[dict[str, Any]]:
