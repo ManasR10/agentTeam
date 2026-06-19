@@ -37,6 +37,37 @@ def read_positive_integer(name: str, default: int) -> int:
     return value
 
 
+# Accepted boolean spellings. We refuse anything else rather than guessing,
+# so a typo in .env fails loudly instead of silently disabling a safety limit.
+_TRUE_VALUES = frozenset({"true", "1", "yes"})
+_FALSE_VALUES = frozenset({"false", "0", "no"})
+
+
+def read_boolean(name: str, default: bool) -> bool:
+    """
+    Read a boolean environment variable from an explicit allow-list of spellings.
+
+    Accepts true/false, 1/0, yes/no (case-insensitive). An unset or blank value
+    returns the default. Any other string is a configuration error — we never
+    silently interpret an unknown value as True or False.
+
+    Raises:
+        ConfigurationError: If the value is set but not a recognised boolean.
+    """
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    value = raw_value.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ConfigurationError(
+        f"{name} must be a boolean (true/false, 1/0, yes/no), "
+        f"received: {raw_value!r}"
+    )
+
+
 def resolve_workspace_root(raw_path: str) -> Path:
     """
     Resolve TOOL_WORKSPACE_ROOT into an absolute directory path.
@@ -74,6 +105,16 @@ class Settings:
     tool_max_iterations: int
     tool_workspace_root: Path
     max_file_read_chars: int
+    # Phase 3 mutation limits. These bound how much a single agent run may
+    # change, independent of the per-tool path/type checks.
+    max_files_changed: int
+    max_file_write_chars: int
+    max_total_write_chars: int
+    allow_file_creation: bool
+    allow_file_overwrite: bool
+    # Phase 3 command-execution limits.
+    command_timeout_seconds: int
+    max_command_output_chars: int
 
 
 def load_settings() -> Settings:
@@ -105,6 +146,34 @@ def load_settings() -> Settings:
         max_file_read_chars=read_positive_integer(
             "MAX_FILE_READ_CHARS",
             default=20000,
+        ),
+        max_files_changed=read_positive_integer(
+            "MAX_FILES_CHANGED",
+            default=10,
+        ),
+        max_file_write_chars=read_positive_integer(
+            "MAX_FILE_WRITE_CHARS",
+            default=100000,
+        ),
+        max_total_write_chars=read_positive_integer(
+            "MAX_TOTAL_WRITE_CHARS",
+            default=300000,
+        ),
+        allow_file_creation=read_boolean(
+            "ALLOW_FILE_CREATION",
+            default=True,
+        ),
+        allow_file_overwrite=read_boolean(
+            "ALLOW_FILE_OVERWRITE",
+            default=True,
+        ),
+        command_timeout_seconds=read_positive_integer(
+            "COMMAND_TIMEOUT_SECONDS",
+            default=120,
+        ),
+        max_command_output_chars=read_positive_integer(
+            "MAX_COMMAND_OUTPUT_CHARS",
+            default=30000,
         ),
     )
 

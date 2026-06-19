@@ -71,6 +71,13 @@ def _settings(tmp_path: Path) -> Settings:
         tool_max_iterations=3,
         tool_workspace_root=tmp_path,
         max_file_read_chars=1000,
+        max_files_changed=10,
+        max_file_write_chars=100000,
+        max_total_write_chars=300000,
+        allow_file_creation=True,
+        allow_file_overwrite=True,
+        command_timeout_seconds=120,
+        max_command_output_chars=30000,
     )
 
 
