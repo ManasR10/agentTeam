@@ -4,7 +4,9 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from tools.command_tools import run_check, run_tests
 from tools.file_tools import list_files, read_file
+from tools.git_tools import git_diff, git_status
 from tools.schemas import ToolResult
 from tools.write_tools import create_file, replace_in_file, write_file
 
@@ -175,14 +177,101 @@ _WRITE_FILE = RegisteredTool(
 )
 
 
-# The single source of truth for every tool the agent layer may use. New
-# Phase 3 tools (command/git) register themselves here.
+_RUN_TESTS = RegisteredTool(
+    name="run_tests",
+    description=(
+        "Run pytest on specific test paths under tests/. The executable and "
+        "command are fixed by Python; you only choose which test files to run "
+        "and an allow-listed set of flags (-q, -x, -v)."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Test paths under tests/ (e.g. tests/test_x.py).",
+            },
+            "extra_args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional pytest flags from {-q, -x, -v}.",
+            },
+        },
+        "required": [],
+        "additionalProperties": False,
+    },
+    function=run_tests,
+    category="command",
+)
+
+_RUN_CHECK = RegisteredTool(
+    name="run_check",
+    description=(
+        "Run a single named project check. Allowed checks: 'pytest' (full "
+        "suite) and 'py_compile' (compile project sources). No other commands "
+        "are available."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "check": {
+                "type": "string",
+                "enum": ["pytest", "py_compile"],
+                "description": "Which named check to run.",
+            }
+        },
+        "required": ["check"],
+        "additionalProperties": False,
+    },
+    function=run_check,
+    category="command",
+)
+
+_GIT_STATUS = RegisteredTool(
+    name="git_status",
+    description=(
+        "Show `git status --short` for the workspace. Read-only: it never "
+        "stages, commits, or modifies the repository."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    function=git_status,
+    category="git",
+)
+
+_GIT_DIFF = RegisteredTool(
+    name="git_diff",
+    description=(
+        "Show the unstaged `git diff` for the workspace, with a summary of "
+        "files changed and insertion/deletion counts. Read-only."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    function=git_diff,
+    category="git",
+)
+
+
+# The single source of truth for every tool the agent layer may use.
 TOOL_REGISTRY: dict[str, RegisteredTool] = {
     _READ_FILE.name: _READ_FILE,
     _LIST_FILES.name: _LIST_FILES,
     _CREATE_FILE.name: _CREATE_FILE,
     _REPLACE_IN_FILE.name: _REPLACE_IN_FILE,
     _WRITE_FILE.name: _WRITE_FILE,
+    _RUN_TESTS.name: _RUN_TESTS,
+    _RUN_CHECK.name: _RUN_CHECK,
+    _GIT_STATUS.name: _GIT_STATUS,
+    _GIT_DIFF.name: _GIT_DIFF,
 }
 
 
@@ -199,7 +288,7 @@ def register_tool(tool: RegisteredTool) -> None:
 # registered surfaces immediately rather than silently doing nothing.
 PLANNER_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
 
-# The coder may inspect and mutate. Command/git capabilities are added in P3.4.
+# The coder may inspect, mutate, run tests/checks, and inspect git.
 CODER_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "read_file",
@@ -207,12 +296,17 @@ CODER_TOOL_NAMES: frozenset[str] = frozenset(
         "create_file",
         "replace_in_file",
         "write_file",
+        "run_tests",
+        "run_check",
+        "git_diff",
+        "git_status",
     }
 )
 
-# The reviewer is read-only. Git inspection tools are added in P3.4. It must
-# never receive any write capability.
-REVIEWER_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
+# The reviewer is read-only: inspect files and git, but never mutate.
+REVIEWER_TOOL_NAMES: frozenset[str] = frozenset(
+    {"read_file", "list_files", "git_diff", "git_status"}
+)
 
 
 def get_tool_definitions(names: Collection[str]) -> list[dict[str, Any]]:
