@@ -7,6 +7,11 @@ from typing import Any
 from agents.prompts import PLANNER_SYSTEM_PROMPT, build_planning_prompt
 from agents.state import PlanningResult, RelevantFile
 from llm import call_agent_with_tools
+from tools.registry import (
+    PLANNER_TOOL_NAMES,
+    get_tool_definitions,
+    make_tool_executor,
+)
 
 # A planning run reads several files and then emits the full JSON plan. The
 # Phase 0/1 default of 1024 output tokens is too small for that final turn and
@@ -157,9 +162,13 @@ def plan_repo_task(task: str) -> PlanningResult:
     prove it inspected real files.
     """
     prompt = build_planning_prompt(task)
+    # The planner is a read-only role: it inspects the repo but must never be
+    # handed mutation or command capabilities.
     run_result = call_agent_with_tools(
         prompt=prompt,
         system=PLANNER_SYSTEM_PROMPT,
+        tools=get_tool_definitions(PLANNER_TOOL_NAMES),
+        tool_executor=make_tool_executor(PLANNER_TOOL_NAMES),
         max_tokens=PLANNER_MAX_TOKENS,
         max_iterations=PLANNER_MAX_ITERATIONS,
     )

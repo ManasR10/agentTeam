@@ -30,3 +30,5 @@ logs/
 .idea/
 # macOS
 .DS_Store
+# Local Claude project guide (not committed)
+CLAUDE.md

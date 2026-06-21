@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -8,7 +9,16 @@ from typing import Any
 from anthropic import Anthropic  # pyright: ignore[reportMissingImports]
 
 from config import ConfigurationError, get_settings
-from tools.registry import ANTHROPIC_TOOLS, execute_tool
+from tools.registry import (
+    READ_ONLY_TOOL_NAMES,
+    get_tool_definitions,
+    make_tool_executor,
+)
+from tools.schemas import ToolResult
+
+# A tool executor maps (tool_name, tool_input) to a ToolResult. The loop stays
+# agnostic about which tools are permitted; the executor closes over that.
+ToolExecutor = Callable[[str, dict[str, Any]], ToolResult]
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +196,8 @@ def call_agent_with_tools(
         "Do not guess file contents. "
         "If a tool fails, explain the failure clearly."
     ),
+    tools: Sequence[dict[str, Any]] | None = None,
+    tool_executor: ToolExecutor | None = None,
     max_tokens: int | None = None,
     max_iterations: int | None = None,
 ) -> AgentRunResult:
@@ -207,6 +219,22 @@ def call_agent_with_tools(
         raise ValueError("prompt cannot be empty")
     if not clean_system:
         raise ValueError("system cannot be empty")
+
+    # SECURE DEFAULT: with no profile, only read-only tools are advertised.
+    # Now that the registry also holds write/command/git tools, defaulting to
+    # the full set would hand any plain caller (e.g. phase1_demo) mutation
+    # power. Callers that need more must opt in explicitly.
+    if tools is None:
+        resolved_tools = get_tool_definitions(READ_ONLY_TOOL_NAMES)
+    else:
+        resolved_tools = list(tools)
+    # If no executor is supplied, permit exactly the advertised tools, so the
+    # allow-list can never be wider than what the model was shown.
+    if tool_executor is None:
+        advertised = {tool["name"] for tool in resolved_tools}
+        resolved_executor: ToolExecutor = make_tool_executor(advertised)
+    else:
+        resolved_executor = tool_executor
 
     settings = get_settings()
     resolved_max_tokens = (
@@ -244,7 +272,7 @@ def call_agent_with_tools(
             model=settings.llm_model,
             max_tokens=resolved_max_tokens,
             system=clean_system,
-            tools=ANTHROPIC_TOOLS,
+            tools=resolved_tools,
             messages=messages,
         )
 
@@ -317,7 +345,7 @@ def call_agent_with_tools(
                 )
                 continue
 
-            result = execute_tool(tool_name, tool_input)
+            result = resolved_executor(tool_name, tool_input)
 
             tool_result_text = format_tool_result_content(
                 tool_name=tool_name,

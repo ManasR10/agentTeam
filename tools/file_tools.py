@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -44,6 +45,17 @@ TEXT_FILE_EXTENSIONS = {
     ".env.example",
     ".gitignore",
 }
+
+
+def calculate_sha256(text: str) -> str:
+    """
+    Return the SHA-256 hex digest of `text` encoded as UTF-8.
+
+    Used as an optimistic-concurrency token: read_file reports the hash of a
+    file's full content, and Phase 3 write tools refuse to overwrite unless the
+    file still hashes to the value the model last saw.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def is_probably_text_file(path: Path) -> bool:
@@ -132,6 +144,11 @@ def read_file(path: str) -> ToolResult:
                 "chars": len(raw_text),
                 "returned_chars": len(text),
                 "truncated": truncated,
+                # Hash the FULL file, not the (possibly truncated) returned
+                # text, so the digest matches what a write tool will recompute
+                # on disk. A write based on a truncated read is rejected
+                # separately, since the model never saw the whole file.
+                "sha256": calculate_sha256(raw_text),
             },
         )
 

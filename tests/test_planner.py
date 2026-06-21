@@ -144,10 +144,12 @@ def test_plan_repo_task_uses_tool_loop_and_parses(
     calls: dict[str, object] = {}
 
     def fake_call_agent_with_tools(
-        *, prompt: str, system: str, max_tokens: int, max_iterations: int
+        *, prompt: str, system: str, tools, tool_executor, max_tokens: int,
+        max_iterations: int
     ) -> _FakeRunResult:
         calls["prompt"] = prompt
         calls["system"] = system
+        calls["tools"] = tools
         calls["max_tokens"] = max_tokens
         calls["max_iterations"] = max_iterations
         return _FakeRunResult(
@@ -171,6 +173,9 @@ def test_plan_repo_task_uses_tool_loop_and_parses(
     assert "repo-inspection planning agent" in str(calls["system"])
     assert calls["max_tokens"] == 4096
     assert calls["max_iterations"] == 12
+    # Planner must be handed only the read-only capability profile.
+    planner_tool_names = {d["name"] for d in calls["tools"]}  # type: ignore[union-attr]
+    assert planner_tool_names == {"read_file", "list_files"}
     # Grounding metadata is attached from the run result.
     assert result.iterations == 2
     assert result.tool_calls == [
@@ -186,7 +191,8 @@ def test_plan_repo_task_raises_on_truncated_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_call_agent_with_tools(
-        *, prompt: str, system: str, max_tokens: int, max_iterations: int
+        *, prompt: str, system: str, tools, tool_executor, max_tokens: int,
+        max_iterations: int
     ) -> _FakeRunResult:
         return _FakeRunResult(text='{"task": "Add CLI"', stop_reason="max_tokens")
 
