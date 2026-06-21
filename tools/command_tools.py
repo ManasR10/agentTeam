@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -66,6 +67,9 @@ def run_process(
     CommandResult (exit_code None, timed_out True) rather than hanging.
     """
     limit = settings.max_command_output_chars
+    # Don't write .pyc into the target repo: it litters the user's workspace and,
+    # worse, a stale cache from one test run can mask the next run's source.
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     start = time.monotonic()
     try:
         proc = subprocess.run(  # noqa: S603 - argv is built from fixed templates
@@ -75,6 +79,7 @@ def run_process(
             capture_output=True,
             text=True,
             timeout=settings.command_timeout_seconds,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         duration = time.monotonic() - start

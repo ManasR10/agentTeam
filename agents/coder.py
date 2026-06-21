@@ -127,12 +127,16 @@ def implement_repo_task(
     plan: PlanningResult,
     *,
     review_feedback: str | None = None,
+    tool_executor: Any = None,
 ) -> CodingResult:
     """
     Execute the approved plan using the coder's capability-scoped tools.
 
     When `review_feedback` is supplied, this runs a repair attempt addressing
-    the reviewer's issues instead of a fresh implementation.
+    the reviewer's issues instead of a fresh implementation. `tool_executor`
+    lets a caller (e.g. the Phase 4 workflow) wrap the coder's tools to capture
+    rollback snapshots and audit events; it defaults to the standard
+    capability-scoped executor.
     """
     plan_text = _plan_to_text(plan)
     if review_feedback is not None:
@@ -144,7 +148,7 @@ def implement_repo_task(
         prompt=prompt,
         system=CODER_SYSTEM_PROMPT,
         tools=get_tool_definitions(CODER_TOOL_NAMES),
-        tool_executor=make_tool_executor(CODER_TOOL_NAMES),
+        tool_executor=tool_executor or make_tool_executor(CODER_TOOL_NAMES),
         max_tokens=CODER_MAX_TOKENS,
         max_iterations=CODER_MAX_ITERATIONS,
     )

@@ -146,6 +146,23 @@ def get_changed_paths(settings: Settings | None = None) -> tuple[str, ...]:
     )
 
 
+def get_current_head(settings: Settings | None = None) -> str | None:
+    """
+    Orchestrator-facing: the current commit SHA, or None.
+
+    Phase 4 captures this before planning and re-checks it before implementing,
+    so a plan can't be applied to a repository that moved underneath it. Returns
+    None if the workspace is not the git root or has no commit yet.
+    """
+    settings = settings or get_settings()
+    if not is_workspace_git_root(settings):
+        return None
+    result = _run_git(["rev-parse", "HEAD"], settings)
+    if result.exit_code != 0:
+        return None
+    return result.stdout.strip()
+
+
 def get_diff_text(settings: Settings | None = None) -> str:
     """
     Orchestrator-facing: raw unstaged diff text (empty string if none).
