@@ -28,15 +28,17 @@ class CodingResult:
     from git, and is authoritative.
     """
 
+    # Model-derived fields (filled by the pure JSON parser).
     summary: str
     reported_changed_files: tuple[ChangedFileSummary, ...]
-    actual_changed_files: tuple[str, ...]
     tests_requested: tuple[str, ...]
     known_issues: tuple[str, ...]
-    tool_calls: tuple[str, ...]
-    iterations: int
-    input_tokens: int
-    output_tokens: int
+    # Attached afterwards by implement_repo_task (NOT by the parser).
+    actual_changed_files: tuple[str, ...] = ()
+    tool_calls: tuple[str, ...] = ()
+    iterations: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)
