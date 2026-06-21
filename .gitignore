@@ -25,6 +25,8 @@ dist/
 logs/
 # LangGraph local state
 .langgraph_api/
+# Phase 4 durable workflow state (runs database + rollback backups)
+.devagent/
 # IDEs
 .vscode/
 .idea/

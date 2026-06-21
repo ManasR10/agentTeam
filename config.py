@@ -93,6 +93,34 @@ def resolve_workspace_root(raw_path: str) -> Path:
     return resolved
 
 
+def resolve_data_paths(workspace_root: Path) -> tuple[Path, Path]:
+    """
+    Resolve where Phase 4 stores durable workflow state.
+
+    Both default to a `.devagent/` directory inside the target workspace, so the
+    run database sits with the repository being worked on. Either can be
+    overridden via env var; a relative override is taken relative to the
+    workspace, an absolute one is used as-is.
+    """
+    raw_dir = os.getenv("DEVAGENT_DATA_DIR")
+    if raw_dir and raw_dir.strip():
+        data_dir = Path(raw_dir).expanduser()
+        if not data_dir.is_absolute():
+            data_dir = workspace_root / data_dir
+    else:
+        data_dir = workspace_root / ".devagent"
+
+    raw_db = os.getenv("DEVAGENT_DATABASE_PATH")
+    if raw_db and raw_db.strip():
+        db_path = Path(raw_db).expanduser()
+        if not db_path.is_absolute():
+            db_path = workspace_root / db_path
+    else:
+        db_path = data_dir / "devagent.db"
+
+    return data_dir.resolve(), db_path.resolve()
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     # Optional at load time: the key is only required to build the Anthropic
@@ -115,6 +143,11 @@ class Settings:
     # Phase 3 command-execution limits.
     command_timeout_seconds: int
     max_command_output_chars: int
+    # Phase 4 durable-workflow storage. These live under the TARGET workspace by
+    # default, so a run's database travels with the repo it operates on rather
+    # than polluting the DevAgent project directory.
+    devagent_data_dir: Path
+    devagent_database_path: Path
 
 
 def load_settings() -> Settings:
@@ -125,6 +158,7 @@ def load_settings() -> Settings:
     workspace_root = resolve_workspace_root(
         os.getenv("TOOL_WORKSPACE_ROOT", ".")
     )
+    data_dir, database_path = resolve_data_paths(workspace_root)
     raw_api_key = os.getenv("ANTHROPIC_API_KEY")
     api_key = raw_api_key.strip() if raw_api_key and raw_api_key.strip() else None
     return Settings(
@@ -175,6 +209,8 @@ def load_settings() -> Settings:
             "MAX_COMMAND_OUTPUT_CHARS",
             default=30000,
         ),
+        devagent_data_dir=data_dir,
+        devagent_database_path=database_path,
     )
 
 

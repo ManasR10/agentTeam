@@ -78,6 +78,8 @@ def _settings(tmp_path: Path) -> Settings:
         allow_file_overwrite=True,
         command_timeout_seconds=120,
         max_command_output_chars=30000,
+        devagent_data_dir=tmp_path / ".devagent",
+        devagent_database_path=tmp_path / ".devagent" / "devagent.db",
     )
 
 
