@@ -6,10 +6,11 @@ reviews its own changes, and produces human-reviewable output.
 
 ## Current status
 
-Phase 3: a controlled implementation agent. It plans a task, changes code
-through safe tools, runs the tests itself, and reviews the result before
-reporting back. Dry-run is the default; mutation requires `--apply` and a clean
-git worktree.
+Phase 4: a durable, resumable, human-approved workflow engine around the Phase 3
+agent. A run is persisted to SQLite at every stage, pauses for the user to
+approve the exact plan before any code is written, can be resumed after the
+process exits, records an append-only audit log, and can be rolled back. Managed
+through the `devagent.py` CLI.
 
 ## Requirements
 
@@ -18,8 +19,9 @@ git worktree.
 - Anthropic API key (only for live scripts — see below)
 
 An API key is required for the live scripts (`smoke_test.py`, `phase1_demo.py`,
-`phase2_demo.py`, `phase3_demo.py`). It is **not** required for the offline unit
-tests or the read-only file tools, which run without contacting the API.
+`phase2_demo.py`, `phase3_demo.py`, `devagent.py`). It is **not** required for
+the offline unit tests or the read-only file tools, which run without contacting
+the API.
 
 ## Setup
 
@@ -169,6 +171,56 @@ TOOL_WORKSPACE_ROOT=/path/to/repo python phase3_demo.py "Add rate limiting" --ap
 Exit codes: `0` completed or dry-run plan, `1` failed or changes still
 requested, `2` usage error, `3` refused (worktree not clean / not a git root).
 
+## Phase 4: Durable workflow engine
+
+Phase 4 wraps the Phase 3 agent in a persistent workflow so a run survives the
+process: it is saved to SQLite at every stage, pauses for human approval before
+any code is written, can be resumed after a restart, keeps an append-only audit
+log, and can be rolled back.
+
+Lifecycle:
+
+```
+devagent.py start "task"   -> plan, persist, stop at awaiting_plan_approval
+devagent.py show <run-id>  -> inspect the plan (nothing has changed yet)
+devagent.py approve <id>   -> bind approval to a hash of the exact plan
+devagent.py resume <id>    -> implement -> verify -> review -> (repair)* -> done
+```
+
+The pieces (`workflow/`, `storage/`):
+
+- **Persistence** — every run is a `WorkflowRun` stored in SQLite (`storage/`),
+  with validated state transitions (`transitions.py`) and versioned
+  serialization (`serialization.py`). State survives restarting the process.
+- **Approval gate** — planning stops at `awaiting_plan_approval`; approval is a
+  separate, persisted action bound to a SHA-256 of the exact plan, so an
+  approval can never carry over to a plan that changed afterwards. No coder tool
+  exists before approval.
+- **Resumable stages** — each stage saves before and after its work, so an
+  interrupted run is recoverable; an interrupted implementation is reconciled
+  against the audit log rather than blindly re-run.
+- **Audit log** — an append-only event stream (`events.py`) records every stage,
+  tool, file change, and decision, with secret-looking values redacted.
+- **Rollback** — `rollback.py` restores files the run changed and removes files
+  it created, using snapshots taken before the first edit. It never runs
+  `git reset --hard` and refuses if a file was edited by a human afterwards.
+
+The storage lives in `.devagent/` inside the target workspace (git-ignored).
+Manage runs with the CLI:
+
+```bash
+python devagent.py start "Add request validation"
+python devagent.py list
+python devagent.py show <run-id>
+python devagent.py approve <run-id>
+python devagent.py resume <run-id>
+python devagent.py events <run-id>
+python devagent.py rollback <run-id>
+```
+
+CLI exit codes: `0` ok, `1` failed / changes requested, `2` usage, `3` refused,
+`4` run not found, `5` approval required, `6` not resumable, `7` rollback failed.
+
 ## Current architecture
 
 - validated environment configuration (`config.py`)
@@ -182,8 +234,13 @@ requested, `2` usage error, `3` refused (worktree not clean / not a git root).
   with a capability-scoped registry that hands each agent only what it needs
 - coder, reviewer, and orchestrator agents (`agents/`) with a bounded
   plan -> code -> verify -> review repair loop and run-level mutation limits
+- durable workflow engine (`workflow/`): lifecycle models, validated
+  transitions, versioned serialization, stage-based orchestration, human
+  approval, resume/recovery, append-only audit events, and run-scoped rollback
+- SQLite-backed run + event storage (`storage/`)
 - live API smoke test (`smoke_test.py`) and demos (`phase1_demo.py`,
-  `phase2_demo.py`, `phase3_demo.py`)
+  `phase2_demo.py`, `phase3_demo.py`); durable workflow CLI (`devagent.py`)
 
-Multi-agent orchestration via a real graph framework, richer language/check
-support, and persistent run history are up next.
+A real graph framework (e.g. LangGraph) can later wrap the same stage functions,
+and SQLite can be swapped for a server database, without changing the workflow
+contract.
