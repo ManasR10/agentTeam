@@ -121,6 +121,13 @@ def test_build_check_argv_unknown_raises(ws: Path) -> None:
         build_check_argv("curl", get_settings_ws(ws))
 
 
+def test_py_compile_fails_clearly_with_no_targets(tmp_path: Path) -> None:
+    """An empty workspace must not silently compile the current directory."""
+    settings = replace(get_settings(), tool_workspace_root=tmp_path)
+    with pytest.raises(UnsupportedCommandError):
+        build_check_argv("py_compile", settings)
+
+
 def test_compile_check_targets_exist_only(monkeypatch, tmp_path: Path) -> None:
     settings = replace(get_settings(), tool_workspace_root=tmp_path)
     (tmp_path / "config.py").write_text("x = 1\n")

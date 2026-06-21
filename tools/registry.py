@@ -286,6 +286,9 @@ def register_tool(tool: RegisteredTool) -> None:
 # capability-based security, not just prompt instructions. Profiles are
 # validated against the registry at call time, so a name here that is not yet
 # registered surfaces immediately rather than silently doing nothing.
+# The secure default for any caller that does not pick a profile. Read-only.
+READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
+
 PLANNER_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_files"})
 
 # The coder may inspect, mutate, run tests/checks, and inspect git.

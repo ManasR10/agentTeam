@@ -115,16 +115,16 @@ def test_executes_tool_then_returns_final_text(monkeypatch, tmp_path) -> None:
         ]
     )
     _patch(monkeypatch, _settings(tmp_path), client)
-    # Mock the dispatcher so the loop never touches the real filesystem.
-    monkeypatch.setattr(
-        llm,
-        "execute_tool",
-        lambda name, inp: ToolResult(
-            ok=True, content="MOCK CONTENTS", metadata={"path": inp.get("path")}
-        ),
-    )
 
-    result = llm.call_agent_with_tools("read the readme")
+    # Inject a fake executor so the loop never touches the real filesystem.
+    def fake_executor(name, inp):
+        return ToolResult(
+            ok=True, content="MOCK CONTENTS", metadata={"path": inp.get("path")}
+        )
+
+    result = llm.call_agent_with_tools(
+        "read the readme", tool_executor=fake_executor
+    )
 
     assert result.text == "Based on the file, X."
     assert result.iterations == 2
@@ -144,6 +144,19 @@ def test_executes_tool_then_returns_final_text(monkeypatch, tmp_path) -> None:
     assert last["content"][0]["tool_use_id"] == "toolu_1"
 
 
+def test_default_profile_is_read_only(monkeypatch, tmp_path) -> None:
+    """A plain caller (no profile) must never be advertised write/command tools."""
+    client = _FakeClient([_Response([_TextBlock("done")], "end_turn")])
+    _patch(monkeypatch, _settings(tmp_path), client)
+
+    llm.call_agent_with_tools("hi")
+
+    advertised = {t["name"] for t in client.messages.create_calls[0]["tools"]}
+    assert advertised == {"read_file", "list_files"}
+    assert "write_file" not in advertised
+    assert "run_tests" not in advertised
+
+
 def test_raises_after_max_iterations(monkeypatch, tmp_path) -> None:
     settings = _settings(tmp_path)  # tool_max_iterations == 3
     always_tool = [
@@ -155,14 +168,14 @@ def test_raises_after_max_iterations(monkeypatch, tmp_path) -> None:
     ]
     client = _FakeClient(always_tool)
     _patch(monkeypatch, settings, client)
-    monkeypatch.setattr(
-        llm,
-        "execute_tool",
-        lambda name, inp: ToolResult(ok=True, content="loop", metadata=None),
-    )
 
     with pytest.raises(llm.ToolLoopError):
-        llm.call_agent_with_tools("loop forever")
+        llm.call_agent_with_tools(
+            "loop forever",
+            tool_executor=lambda name, inp: ToolResult(
+                ok=True, content="loop", metadata=None
+            ),
+        )
 
     # the loop stops exactly at the iteration cap
     assert len(client.messages.create_calls) == settings.tool_max_iterations

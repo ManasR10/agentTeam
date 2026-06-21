@@ -9,7 +9,11 @@ from typing import Any
 from anthropic import Anthropic  # pyright: ignore[reportMissingImports]
 
 from config import ConfigurationError, get_settings
-from tools.registry import ANTHROPIC_TOOLS, execute_tool
+from tools.registry import (
+    READ_ONLY_TOOL_NAMES,
+    get_tool_definitions,
+    make_tool_executor,
+)
 from tools.schemas import ToolResult
 
 # A tool executor maps (tool_name, tool_input) to a ToolResult. The loop stays
@@ -216,12 +220,21 @@ def call_agent_with_tools(
     if not clean_system:
         raise ValueError("system cannot be empty")
 
-    # Default to the full tool set and the allow-all executor (Phase 1/2
-    # behaviour). Phase 3 callers inject a capability-scoped profile + executor.
-    resolved_tools = list(ANTHROPIC_TOOLS if tools is None else tools)
-    resolved_executor: ToolExecutor = (
-        execute_tool if tool_executor is None else tool_executor
-    )
+    # SECURE DEFAULT: with no profile, only read-only tools are advertised.
+    # Now that the registry also holds write/command/git tools, defaulting to
+    # the full set would hand any plain caller (e.g. phase1_demo) mutation
+    # power. Callers that need more must opt in explicitly.
+    if tools is None:
+        resolved_tools = get_tool_definitions(READ_ONLY_TOOL_NAMES)
+    else:
+        resolved_tools = list(tools)
+    # If no executor is supplied, permit exactly the advertised tools, so the
+    # allow-list can never be wider than what the model was shown.
+    if tool_executor is None:
+        advertised = {tool["name"] for tool in resolved_tools}
+        resolved_executor: ToolExecutor = make_tool_executor(advertised)
+    else:
+        resolved_executor = tool_executor
 
     settings = get_settings()
     resolved_max_tokens = (

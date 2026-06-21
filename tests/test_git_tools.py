@@ -8,7 +8,12 @@ import pytest
 
 from config import get_settings
 from tools import git_tools
-from tools.git_tools import git_diff, git_status, is_workspace_git_root
+from tools.git_tools import (
+    get_diff_text,
+    git_diff,
+    git_status,
+    is_workspace_git_root,
+)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -78,3 +83,25 @@ def test_refuses_when_workspace_is_subdir_of_repo(
     result = git_status()
     assert result.ok is False
     assert "not the git root" in result.content.lower()
+
+
+def test_get_diff_text_respects_git_root_guard(monkeypatch, repo: Path) -> None:
+    """Orchestrator-facing diff must not leak a parent repo's diff."""
+    from dataclasses import replace as _replace
+
+    # Real diff when workspace is the git root.
+    (repo / "a.py").write_text("x = 1\nx = 5\n")
+    assert "x = 5" in get_diff_text()
+
+    # A subdir of the repo is NOT the root -> guarded to empty string.
+    sub = repo / "child"
+    sub.mkdir()
+    sub_settings = _replace(get_settings(), tool_workspace_root=sub)
+    monkeypatch.setattr(git_tools, "get_settings", lambda: sub_settings)
+    assert get_diff_text() == ""
+
+
+def test_get_diff_text_empty_in_non_git_dir(monkeypatch, tmp_path: Path) -> None:
+    settings = replace(get_settings(), tool_workspace_root=tmp_path)
+    monkeypatch.setattr(git_tools, "get_settings", lambda: settings)
+    assert get_diff_text() == ""

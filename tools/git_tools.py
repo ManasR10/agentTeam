@@ -127,9 +127,35 @@ def git_diff() -> ToolResult:
     )
 
 
-def get_diff_text(settings: Settings | None = None) -> str:
-    """Orchestrator-facing: raw unstaged diff text (empty string if none)."""
+def get_changed_paths(settings: Settings | None = None) -> tuple[str, ...]:
+    """
+    Orchestrator-facing: the authoritative list of changed paths from git.
+
+    This is the source of truth for "what changed" — never the model's own
+    claim. Guarded to the git root; returns empty if the workspace is not the
+    git root or not a repo.
+    """
     settings = settings or get_settings()
+    if not is_workspace_git_root(settings):
+        return ()
+    result = _run_git(["status", "--short"], settings)
+    if result.exit_code != 0:
+        return ()
+    return tuple(
+        line[3:] for line in result.stdout.splitlines() if line.strip()
+    )
+
+
+def get_diff_text(settings: Settings | None = None) -> str:
+    """
+    Orchestrator-facing: raw unstaged diff text (empty string if none).
+
+    Applies the same git-root guard as the model-facing tools so it can never
+    return a parent repository's diff.
+    """
+    settings = settings or get_settings()
+    if not is_workspace_git_root(settings):
+        return ""
     result = _run_git(["diff", "--no-ext-diff", "--unified=3"], settings)
     if result.exit_code != 0:
         return ""

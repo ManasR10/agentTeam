@@ -148,7 +148,14 @@ def build_check_argv(check: str, settings: Settings) -> list[str]:
     if check == "pytest":
         return [sys.executable, "-m", "pytest", "-q"]
     if check == "py_compile":
-        return [sys.executable, "-m", "compileall", "-q", *compile_targets(settings)]
+        targets = compile_targets(settings)
+        if not targets:
+            # Never fall back to bare `compileall -q`, which would compile the
+            # current directory (including .venv/.git/caches).
+            raise UnsupportedCommandError(
+                "py_compile has no known project targets in this workspace."
+            )
+        return [sys.executable, "-m", "compileall", "-q", *targets]
     raise UnsupportedCommandError(f"Unsupported check: {check!r}")
 
 
