@@ -13,6 +13,7 @@ git worktree.
 
 ## Requirements
 
+
 - Python 3.12
 - Anthropic API key (only for live scripts — see below)
 
